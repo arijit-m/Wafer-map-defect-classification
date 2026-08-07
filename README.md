@@ -160,7 +160,7 @@ of diagnosing and fixing a feature is itself evidence of engineering judgment:
 ## Exploratory analysis
 
 <!-- Add exported figures to an images/ folder and they will render here. -->
-![Class distribution](images/class_distribution.png)
+![Class distribution](Images/stage-1_class_distribution.png)
 *Log-scale class distribution across the 172,950 labeled wafers — the ~989:1
 imbalance that drives the metric choices above.*
 
