@@ -164,7 +164,7 @@ of diagnosing and fixing a feature is itself evidence of engineering judgment:
 *Log-scale class distribution across the 172,950 labeled wafers — the ~989:1
 imbalance that drives the metric choices above.*
 
-![Example wafer maps by class](images/wafer_grid.png)
+![Example wafer maps by class](Images/stage-1_wafer_grid.png)
 *Representative wafer maps for each of the nine classes. Note the high
 intra-class variance in Donut (from clean annulus to partial crescent) and the
 visible edge structure in some maps labeled `none`.*
