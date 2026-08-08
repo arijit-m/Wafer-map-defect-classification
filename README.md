@@ -2,10 +2,11 @@
 
 **Spatial defect-pattern classification on 172,950 production wafer maps, with each pattern interpreted back to a likely process root cause.**
 
-> **Project status: in progress — Stages 1–2 of 5 complete.**
-> Data engineering, exploratory analysis, and physically-motivated feature
-> engineering are done and reproducible. Modeling and evaluation (Stages 4–5)
-> are the next phases; see the [Roadmap](#roadmap).
+> **Project status: in progress — Stages 1–3 of 5 complete.**
+> Data engineering, exploratory analysis, physically-motivated feature
+> engineering, and class-imbalance handling are done and reproducible.
+> Modeling and evaluation (Stages 4–5) are the next phases; see the
+> [Roadmap](#roadmap).
 
 ---
 
@@ -59,8 +60,10 @@ would silently corrupt a naive pipeline:
   error and no warning. Handled with a custom unwrapping function that converts
   empty arrays to true nulls before filtering.
 - **The official train/test split is inverted** (Test = 118,595 vs Training =
-  54,355). This is departed from deliberately; a fresh stratified split is
-  performed in Stage 3, and the reasoning is documented rather than hidden.
+  54,355). It is departed from deliberately: a fresh **stratified 80/20 split
+  is performed in Stage 3** (138,360 train / 34,590 test), with every class
+  held to its full-set proportion so the rarest classes survive intact in both
+  partitions. The reasoning is documented rather than hidden.
 - **Label noise in the `none` class.** Direct inspection found maps labeled
   `none` that carry visible edge-failure structure. `none` means "no
   systematic pattern was annotated," which is not the same as "clean" — and it
@@ -126,15 +129,80 @@ of diagnosing and fixing a feature is itself evidence of engineering judgment:
   "empty" arc and made a localized Edge-Loc read as fully wrapped. It was
   re-designed as a histogram-based *concentration* measure, which is robust to
   strays because they dilute across bins. Both versions are retained.
-- **Dead / redundant features were found on inspection.** The two outermost
-  radial rings fall in the empty corners outside the circular wafer (no dies,
-  always zero), and one Radon summary turned out to duplicate another. These
-  are flagged for trimming — feature-importance analysis in Stage 4 will
-  confirm.
+- **One redundant feature was confirmed and removed.** A Radon summary
+  (`radon_angle_strength`) was computed as `sino.max(axis=0).max()`, which is
+  arithmetically identical to the global `sino.max()` already stored as
+  `radon_peak` — a guaranteed exact duplicate on every wafer. Before dropping
+  it, an assertion verified the two columns are bit-for-bit equal across all
+  172,950 rows; only then was it removed. Dropping it also protects Stage 4's
+  feature-importance readout, where two identical columns would split
+  `radon_peak`'s importance in half and understate it.
+- **A "dead feature" assumption was tested in code — and proved wrong.** The
+  two outermost radial rings were expected to be structurally empty: the radial
+  profile bins distance out to the corner of the square frame, so for a perfect
+  disc inscribed in that square the outer rings should fall in empty corners
+  (no dies, rate 0). Plausible enough that both this project's Stage 2 notes and
+  my first Stage 3 draft treated them as dead and dropped them. **A verification
+  check falsified the assumption**: rings 9 and 10 are non-zero for 4,164 and
+  888 wafers respectively. The cause is physical — the profile normalizes
+  distance to the *farthest die in each map*, not to a fixed disc, and with 346
+  distinct map shapes, many non-square / off-center / partial maps place real
+  dies out at the bounding-box corner (normalized radius > 0.8). A ring 9/10
+  signal therefore encodes *"this map's dies reach its corner"* — a real, if
+  minority, structural cue. **Decision: both rings retained**, and Stage 4
+  feature-importance — not a guess — decides whether they discriminate. Every
+  drop is verified in code precisely because a reasonable-sounding assumption
+  turned out to be wrong across ~5,000 wafers.
 - **Edge-Ring vs Edge-Loc is expected to be the hard pair.** Both are
   edge-dominated and differ only in angular spread. This is predicted *now*,
   from feature behavior, and will be checked against the Stage 5 confusion
   matrix.
+
+---
+
+## Class-imbalance handling (Stage 3)
+
+With a ~989:1 ratio, imbalance is not a footnote — it shapes the split, the
+metric, and the training signal. Three decisions, each matched to the data type
+it is physically valid for:
+
+- **Stratified split, computed on train only.** The dataset's inverted official
+  split is replaced with a fresh stratified 80/20 split (138,360 / 34,590).
+  Stratification holds every class to its full-set proportion, verified to two
+  decimal places in both partitions — so `Near-full` (149 total) is guaranteed
+  ~30 wafers in the test set rather than risking 0 under a naive random split,
+  which would leave its per-class F1 undefined. All imbalance handling is fit on
+  the training partition only; **the test set keeps the real ~989:1
+  distribution**, because that is the wafer mix the fab actually runs, and a
+  rare-class recall number only means something when measured against
+  realistically rare data.
+
+- **Class weights, not resampling, for the classical route.** Each class is
+  weighted by scikit-learn's `balanced` rule (`n / (n_classes · n_class)`),
+  derived from the training labels alone. The resulting multipliers span from
+  `none` at 0.13 up to `Near-full` at ~129 — a spread of ~991×, recovering the
+  raw imbalance ratio almost exactly. Weights up-weight rare-class errors
+  without fabricating any data. The multipliers are computed and inspected
+  explicitly rather than left as an opaque `class_weight='balanced'` flag, so
+  the imbalance correction is an auditable number.
+
+- **Resampling rejected, with reasons.** SMOTE-style interpolation was
+  considered and declined. On the image route it is invalid for the same reason
+  bilinear resizing was rejected in Stage 2 — interpolating between two wafer
+  maps invents fractional die states that correspond to no physical die
+  condition. Geometric augmentation (90° rotations and mirror flips, which map
+  die-to-die exactly with no interpolation) is the physically valid rare-class
+  multiplier for the CNN, and is built into Stage 4 where the CNN lives. So:
+  **weights for the feature model, geometric augmentation for the image model,
+  interpolation-based resampling rejected on both.**
+
+**Metric consequence to watch (Stage 5).** Up-weighting `Near-full` ~129×
+pushes the model to *never miss* one, raising its recall — but the same
+pressure makes it fire on ambiguous maps, lowering its precision. Class
+weighting trades rare-class recall for rare-class precision; it does not
+dissolve the imbalance. Macro-F1, as the harmonic mean of the two, is built to
+expose exactly that trade — which is why it, not accuracy or recall alone, is
+the steering metric.
 
 ---
 
@@ -148,23 +216,30 @@ of diagnosing and fixing a feature is itself evidence of engineering judgment:
   pass / fail), not intensities. All resizing uses nearest-neighbor
   interpolation; bilinear resizing would average neighboring dies into
   fractional "half-failed" states that correspond to nothing physical. This is
-  verified visually and numerically in the notebook.
+  verified visually and numerically in the notebook, and the same principle
+  drives the rejection of interpolation-based resampling in Stage 3.
+- **Verify before you delete.** No feature is dropped on assumption. Each
+  candidate removal is proven in code first — an approach that already caught a
+  plausible but false "dead ring" assumption across ~5,000 wafers.
 - **Alignment discipline.** The image tensor, the feature table, and the label
   array are asserted to be row-aligned at every stage — a single silent
-  misalignment would make every downstream metric meaningless.
+  misalignment would make every downstream metric meaningless. The Stage 3
+  split operates on shared row indices for the same reason: both routes train
+  and test on the identical wafers, so their scores are directly comparable.
 - **Reproducibility.** Fixed random seeds; compute on Kaggle Notebooks; each
-  stage committed as a standalone, re-runnable notebook.
+  stage committed as a standalone, re-runnable notebook whose output is
+  attached as the next stage's input.
 
 ---
 
 ## Exploratory analysis
 
 <!-- Add exported figures to an images/ folder and they will render here. -->
-![Class distribution](Images/stage-1_class_distribution.png)
+![Class distribution](images/stage-1_class_distribution.png)
 *Log-scale class distribution across the 172,950 labeled wafers — the ~989:1
 imbalance that drives the metric choices above.*
 
-![Example wafer maps by class](Images/stage-1_wafer_grid.png)
+![Example wafer maps by class](images/stage-1_wafer_grid.png)
 *Representative wafer maps for each of the nine classes. Note the high
 intra-class variance in Donut (from clean annulus to partial crescent) and the
 visible edge structure in some maps labeled `none`.*
@@ -187,7 +262,7 @@ pattern vs. a false flag).
 
 - [x] **Stage 1** — Load, data-integrity audit, exploratory analysis
 - [x] **Stage 2** — Preprocessing (64×64 tensor) + size-invariant feature engineering
-- [ ] **Stage 3** — Class-imbalance handling (re-split, resampling, class weights, rotation/flip augmentation)
+- [x] **Stage 3** — Class-imbalance handling: stratified re-split, feature pruning, balanced class weights; interpolation-based resampling evaluated and rejected, geometric augmentation reserved for the CNN
 - [ ] **Stage 4** — Classical baseline (Random Forest / XGBoost / SVM), then a small CNN; head-to-head comparison
 - [ ] **Stage 5** — Per-class evaluation, confusion matrix interpreted physically, process root-cause writeup, business-impact layer
 
@@ -199,7 +274,8 @@ pattern vs. a false flag).
 .
 ├── notebooks/
 │   ├── 01_data_loading_eda.ipynb      # Stage 1: load, integrity audit, EDA
-│   └── 02_preprocessing.ipynb          # Stage 2: 64x64 tensor + hand features
+│   ├── 02_preprocessing.ipynb          # Stage 2: 64x64 tensor + hand features
+│   └── 03_class_imbalance.ipynb         # Stage 3: stratified split, pruning, class weights
 ├── images/                             # exported figures for this README
 ├── .gitignore
 └── README.md
