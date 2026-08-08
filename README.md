@@ -235,11 +235,11 @@ the steering metric.
 ## Exploratory analysis
 
 <!-- Add exported figures to an images/ folder and they will render here. -->
-![Class distribution](images/stage-1_class_distribution.png)
+![Class distribution](Images/stage-1_class_distribution.png)
 *Log-scale class distribution across the 172,950 labeled wafers — the ~989:1
 imbalance that drives the metric choices above.*
 
-![Example wafer maps by class](images/stage-1_wafer_grid.png)
+![Example wafer maps by class](Images/stage-1_wafer_grid.png)
 *Representative wafer maps for each of the nine classes. Note the high
 intra-class variance in Donut (from clean annulus to partial crescent) and the
 visible edge structure in some maps labeled `none`.*
