@@ -2,11 +2,12 @@
 
 **Spatial defect-pattern classification on 172,950 production wafer maps, with each pattern interpreted back to a likely process root cause.**
 
-> **Project status: in progress — Stages 1–3 of 5 complete.**
+> **Project status: in progress — Stages 1–4 of 5 complete.**
 > Data engineering, exploratory analysis, physically-motivated feature
-> engineering, and class-imbalance handling are done and reproducible.
-> Modeling and evaluation (Stages 4–5) are the next phases; see the
-> [Roadmap](#roadmap).
+> engineering, class-imbalance handling, and modeling (four models, both
+> routes) are done and reproducible. Final per-class evaluation and the
+> physically-interpreted confusion matrix (Stage 5) are the remaining phase;
+> see the [Roadmap](#roadmap).
 
 ---
 
@@ -206,6 +207,78 @@ the steering metric.
 
 ---
 
+## Modeling — four-model comparison (Stage 4)
+
+Both routes were trained and evaluated on the **identical frozen test set** (the
+34,590-wafer stratified partition from Stage 3), so every score below is
+directly comparable — the shared split indices guarantee all four models were
+judged on the same wafers. Steering metric throughout is **macro-F1**, never
+accuracy.
+
+| Model | Macro-F1 | Accuracy | Role in the comparison |
+|---|---|---|---|
+| **XGBoost** (classical) | **0.7934** | 0.9415 | Best overall; extracts the collinearity signal the RF underused |
+| Random Forest (classical) | 0.7893 | 0.9632 | Interpretable anchor; feature-importance baseline |
+| Linear SVM (classical) | 0.7459 | 0.9506 | Linear-separability probe (see below) |
+| CNN (image route) | 0.6949 | 0.9158 | Raw 64×64 pixels + geometric augmentation |
+
+The accuracy column is deliberately shown *beside* macro-F1 to expose the
+imbalance trap: the Random Forest posts the **highest accuracy (0.963) yet not
+the best macro-F1**, precisely because accuracy is inflated by the 85% `none`
+majority while macro-F1 weights all nine classes equally.
+
+### Headline result — physics-informed features beat the CNN
+
+On 172,950 wafers, the hand-engineered classical route **outperformed the CNN by
+~10 macro-F1 points**, and the per-class pattern of wins and losses is
+explainable by the *geometry of each defect* versus the *inductive bias of each
+representation*:
+
+- **Global-geometry defects favour hand features, decisively.** A *Scratch* is
+  ~15 collinear dies among ~1,500 — a thin global line with almost no local
+  texture. Convolutions see local neighbourhoods, so the CNN collapsed on
+  Scratch (F1 0.148), while the Radon feature — which integrates along the
+  entire line at once — let XGBoost reach F1 0.403 (recall 0.62). *Donut* tells
+  the same story: an annular center-pass / mid-fail / edge-pass relationship the
+  radial-ring profile encodes directly, but the CNN must discover from pixels
+  (CNN F1 0.512 vs XGBoost ~0.83). Both cases are the domain-feature advantage
+  made quantitative.
+- **The one class where the CNN wins is the feature-limited one.** *Edge-Loc*
+  capped all three classical models at ~0.66–0.73 F1, because the single
+  angular-concentration scalar cannot cleanly separate a localized arc from a
+  full ring (the confusion predicted from Stage 2). The CNN, seeing the raw arc
+  geometry, lifted Edge-Loc recall to 0.82 — the clean illustration that raw
+  pixels help exactly where a hand feature is too coarse.
+- **Model-limited vs feature-limited, separated.** Scratch improved sharply from
+  Random Forest (recall 0.20) to XGBoost (0.62) — the *feature* was adequate,
+  the RF just under-used it (Radon importance ranked 8th by RF impurity but 1st
+  by XGBoost gain). Edge-Loc, by contrast, barely moved across all three
+  classical models — the *feature* is the ceiling. Distinguishing these two
+  failure modes is a diagnostic result, not a leaderboard number.
+
+### The linear-separability probe
+
+The linear SVM lands at 0.7459 — within ~4.7 macro-F1 points of XGBoost despite
+drawing only flat hyperplanes. That small gap is a direct endorsement of the
+feature engineering: **the physics-motivated features make the nine classes
+nearly linearly separable**, so the tree models' non-linear machinery buys only
+a few points. A weak feature set would have left the linear model far behind.
+
+### Honest caveat
+
+The CNN is deliberately compact (~110k parameters, single training run, no
+architecture search). The defensible claim is *not* "CNNs cannot do this" — it
+is that **with comparable effort and interpretability held equal, physics-informed
+features won, and the per-class pattern shows why that outcome is principled
+rather than accidental.** A larger CNN or a two-channel (die-present / die-failed)
+encoding might narrow the gap; that is noted as future work rather than hidden.
+
+The confusion matrices behind these numbers are read *by physical mechanism* in
+Stage 5, where each off-diagonal cell is explained as a process signature rather
+than a dark square.
+
+---
+
 ## Methodology principles
 
 - **Metric discipline.** Under ~989:1 imbalance, accuracy is misleading: a
@@ -248,13 +321,21 @@ visible edge structure in some maps labeled `none`.*
 
 ## Results
 
-**In progress.** Modeling is Stage 4. The evaluation protocol is fixed in
-advance: classical baseline and CNN compared on **macro-F1 and per-class F1**,
-with a **confusion matrix read by physical mechanism** — i.e. every confusion
-is explained in terms of which process signatures genuinely resemble each
-other, not just which cells are dark. A short yield-economics layer translates
-classifier performance into fab-relevant terms (cost of a missed defect
-pattern vs. a false flag).
+**Modeling complete (Stage 4).** Four models compared on the identical frozen
+test set, steered by macro-F1: **XGBoost 0.7934**, Random Forest 0.7893, Linear
+SVM 0.7459, CNN 0.6949. The full comparison, per-class findings, and the
+representation-level thesis (physics-informed features beat the CNN by ~10
+macro-F1 points, with every class-level win and loss explained by defect
+geometry) are written up in
+[Modeling — four-model comparison (Stage 4)](#modeling--four-model-comparison-stage-4)
+above.
+
+**Remaining (Stage 5).** The evaluation deepens into a **confusion matrix read
+by physical mechanism** — every confusion explained in terms of which process
+signatures genuinely resemble each other, not just which cells are dark — plus a
+process root-cause writeup and a short yield-economics layer translating
+classifier performance into fab-relevant terms (cost of a missed defect pattern
+vs. a false flag).
 
 ---
 
@@ -263,7 +344,7 @@ pattern vs. a false flag).
 - [x] **Stage 1** — Load, data-integrity audit, exploratory analysis
 - [x] **Stage 2** — Preprocessing (64×64 tensor) + size-invariant feature engineering
 - [x] **Stage 3** — Class-imbalance handling: stratified re-split, feature pruning, balanced class weights; interpolation-based resampling evaluated and rejected, geometric augmentation reserved for the CNN
-- [ ] **Stage 4** — Classical baseline (Random Forest / XGBoost / SVM), then a small CNN; head-to-head comparison
+- [x] **Stage 4** — Classical baseline (Random Forest / XGBoost / SVM) and a small CNN, compared head-to-head on one frozen test set; best macro-F1 0.7934 (XGBoost), with physics-informed features beating the CNN by ~10 points
 - [ ] **Stage 5** — Per-class evaluation, confusion matrix interpreted physically, process root-cause writeup, business-impact layer
 
 ---
@@ -275,7 +356,8 @@ pattern vs. a false flag).
 ├── notebooks/
 │   ├── 01_data_loading_eda.ipynb      # Stage 1: load, integrity audit, EDA
 │   ├── 02_preprocessing.ipynb          # Stage 2: 64x64 tensor + hand features
-│   └── 03_class_imbalance.ipynb         # Stage 3: stratified split, pruning, class weights
+│   ├── 03_class_imbalance.ipynb         # Stage 3: stratified split, pruning, class weights
+│   └── 04_modeling.ipynb                # Stage 4: RF / XGBoost / SVM + CNN, compared
 ├── images/                             # exported figures for this README
 ├── .gitignore
 └── README.md
@@ -288,9 +370,10 @@ the dataset is available from the source below.
 
 ## Tech stack
 
-Python · pandas · NumPy · scikit-learn · scikit-image (Radon transform,
-categorical-safe resizing) · SciPy (connected-component labeling) · Matplotlib.
-CNN stage: to be added.
+Python · pandas · NumPy · scikit-learn (Random Forest, Linear SVM, metrics) ·
+XGBoost (gradient-boosted classifier) · TensorFlow / Keras (CNN + categorical-safe
+geometric augmentation) · scikit-image (Radon transform, categorical-safe
+resizing) · SciPy (connected-component labeling) · Matplotlib.
 
 ---
 
