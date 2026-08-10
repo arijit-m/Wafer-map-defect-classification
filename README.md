@@ -316,7 +316,7 @@ distinct kinds**, and the distinction matters more than the raw error rate: one
 kind is a data-labeling artifact, one is intrinsic geometry no model escapes, and
 one is a limitation of a specific representation.
 
-![Confusion matrices — XGBoost vs CNN](Images/stage-5_confusion_matrices.png)
+![Confusion matrices — XGBoost vs CNN](images/stage-5_confusion_matrices.png)
 *Row-normalized confusion matrices (diagonal = per-class recall). XGBoost's
 off-diagonal mass sits on physically adjacent classes; the CNN's spreads into the
 radial classes it cannot separate from pixels alone.*
@@ -331,7 +331,7 @@ defects the annotator left unlabeled, not model mistakes. Direct inspection
 confirms it is partial: some show clear structure, some are genuine
 over-calls.
 
-![none to Scratch gallery](Images/stage-5_gallery_none_scratch.png)
+![none to Scratch gallery](images/stage-5_gallery_none_scratch.png)
 *Wafers labeled `none` but predicted Scratch. Several show an unmistakable
 diagonal streak of failing dies — a scratch the annotation missed — while others
 are genuine model over-calls. The `none` boundary is part label-noise, part model
@@ -344,7 +344,7 @@ only in whether the cluster *touches* the edge, and on many real wafers that is
 genuinely borderline. When two different representations both fail the same way,
 the ambiguity is in the wafer, not the model.
 
-![Edge-Loc to Loc gallery](Images/stage-5_gallery_edgeloc_loc.png)
+![Edge-Loc to Loc gallery](images/stage-5_gallery_edgeloc_loc.png)
 *True Edge-Loc predicted as Loc. Several are difficult to categorize by eye —
 the cluster sits near but not clearly on the edge. This confusion reflects real
 geometric ambiguity, not a fixable model weakness.*
@@ -357,7 +357,7 @@ so it sees "a cluster" but loses "the cluster is radially *centered*" or "it for
 an *annulus*." The radial-ring feature encodes that distinction explicitly, which
 is why XGBoost keeps these classes apart and the CNN cannot.
 
-![Center to Loc gallery](Images/stage-5_gallery_center_loc.png)
+![Center to Loc gallery](images/stage-5_gallery_center_loc.png)
 *True Center defects the CNN predicted as Loc. The central concentration is
 visible to the eye and captured by the radial feature, but is lost when a
 convolutional net reads only local structure — the clearest case of an engineered
@@ -379,7 +379,7 @@ far more than a false alarm that wastes review time, which in turn differs from 
 misrouted defect that is still caught but mislabeled — reframes model performance
 in yield terms.
 
-![Cost of errors by type](Images/stage-5_cost_by_error_type.png)
+![Cost of errors by type](images/stage-5_cost_by_error_type.png)
 *Cost-weighted error totals (relative units: miss = 10, misroute = 3, false alarm
 = 1). A do-nothing fab absorbs the full escape cost; both models slash it, but the
 CNN's cost is dominated by expensive misses.*
@@ -437,11 +437,11 @@ the true cost of the classical route is even lower than shown.
 ## Exploratory analysis
 
 <!-- Add exported figures to an images/ folder and they will render here. -->
-![Class distribution](Images/stage-1_class_distribution.png)
+![Class distribution](images/stage-1_class_distribution.png)
 *Log-scale class distribution across the 172,950 labeled wafers — the ~989:1
 imbalance that drives the metric choices above.*
 
-![Example wafer maps by class](Images/stage-1_wafer_grid.png)
+![Example wafer maps by class](images/stage-1_wafer_grid.png)
 *Representative wafer maps for each of the nine classes. Note the high
 intra-class variance in Donut (from clean annulus to partial crescent) and the
 visible edge structure in some maps labeled `none`.*
