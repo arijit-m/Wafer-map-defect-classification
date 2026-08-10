@@ -379,7 +379,7 @@ far more than a false alarm that wastes review time, which in turn differs from 
 misrouted defect that is still caught but mislabeled — reframes model performance
 in yield terms.
 
-![Cost of errors by type](images/stage-5_cost_by_error_type.png)
+![Cost of errors by type](Images/stage-5_cost_by_error_type.png)
 *Cost-weighted error totals (relative units: miss = 10, misroute = 3, false alarm
 = 1). A do-nothing fab absorbs the full escape cost; both models slash it, but the
 CNN's cost is dominated by expensive misses.*
