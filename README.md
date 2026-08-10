@@ -2,12 +2,12 @@
 
 **Spatial defect-pattern classification on 172,950 production wafer maps, with each pattern interpreted back to a likely process root cause.**
 
-> **Project status: in progress — Stages 1–4 of 5 complete.**
-> Data engineering, exploratory analysis, physically-motivated feature
-> engineering, class-imbalance handling, and modeling (four models, both
-> routes) are done and reproducible. Final per-class evaluation and the
-> physically-interpreted confusion matrix (Stage 5) are the remaining phase;
-> see the [Roadmap](#roadmap).
+> **Project status: complete — all 5 stages done.**
+> The full pipeline is built and reproducible: data engineering and integrity
+> audit, physically-motivated feature engineering, class-imbalance handling,
+> four-model comparison across both routes, and a per-class evaluation that reads
+> every confusion by process mechanism and translates model performance into
+> yield-economic terms. See the [Roadmap](#roadmap) for the stage-by-stage map.
 
 ---
 
@@ -279,6 +279,135 @@ than a dark square.
 
 ---
 
+## Process root-cause interpretation
+
+This is the half of the project that a defect-metrology or yield role is really
+about: not "what pattern is this" but "which process should an engineer go
+audit." Each spatial signature maps to a family of candidate mechanisms. These
+are framed as **hypotheses** — the shortlist a yield engineer carries into a
+root-cause investigation — not single-cause certainties; the value is pointing
+the investigation at the right process area.
+
+| Pattern | Spatial signature | Candidate process root cause(s) |
+|---|---|---|
+| **Center** | Failures concentrated toward the wafer center, decaying outward | Radial process non-uniformity peaking at center — consistent with CMP removal-rate non-uniformity, spin-coat / develop thickness variation, or a chamber center hot/cold spot in deposition or etch |
+| **Donut** | Annular band of failures at mid-radius; center and edge pass | A radial *ring* signature — consistent with a focus/exposure ring in lithography, a temperature ring on a bake plate, or a mid-radius deposition/etch-rate band |
+| **Edge-Ring** | Continuous ring of failures at the extreme edge | Rotationally symmetric edge process — consistent with edge-bead removal (EBR), bevel / edge etch, edge-exclusion or clamping effects, or edge-concentrated plasma non-uniformity |
+| **Edge-Loc** | Localized *arc* of failures at the edge (partial, not a full ring) | A single edge contact or excursion point — consistent with a chuck/clamp contact mark, an edge-handling touchpoint, or a localized edge-process excursion |
+| **Loc** | A compact cluster of failures away from the edge | Localized contamination or excursion — consistent with a particle/defect landing, a single stepper-field or reticle defect, or a localized hotspot |
+| **Scratch** | A thin, *collinear* streak of failures | Mechanical handling damage — consistent with robot end-effector drag, tweezer/wand contact, or a particle dragged across the wafer surface |
+| **Random** | Scattered failures with no spatial structure | Distributed random defectivity — consistent with baseline particle contamination or ambient yield loss rather than a systematic process signature |
+| **Near-full** | Almost the entire wafer fails | A global excursion — consistent with a wrong or failed recipe, a gross exposure/develop/bake failure, a skipped process step, or a wafer-level electrical failure |
+| **none** | No systematic annotated pattern | Baseline / no diagnostic pattern — but see the confusion analysis below: a fraction of `none` maps carry real structure the annotator did not label |
+
+The feature engineering was designed around exactly these mechanisms: the radial
+profile exists to separate the radial family (Center / Donut / Edge-Ring), the
+Radon linearity feature exists to catch the mechanical-handling signature
+(Scratch), and the connectivity features separate a global excursion (Near-full)
+from distributed defectivity (Random). The model's job is triage; this table is
+what turns a triage label into a process action.
+
+---
+
+## Confusion analysis — reading the errors by mechanism
+
+On the frozen 34,590-wafer test set, the errors sort into **three physically
+distinct kinds**, and the distinction matters more than the raw error rate: one
+kind is a data-labeling artifact, one is intrinsic geometry no model escapes, and
+one is a limitation of a specific representation.
+
+![Confusion matrices — XGBoost vs CNN](Images/stage-5_confusion_matrices.png)
+*Row-normalized confusion matrices (diagonal = per-class recall). XGBoost's
+off-diagonal mass sits on physically adjacent classes; the CNN's spreads into the
+radial classes it cannot separate from pixels alone.*
+
+**1. Label noise at the `none` boundary.** The single largest group of "errors"
+in both models is `none → defect` — e.g. XGBoost flags 441 `none` wafers as
+Edge-Loc and 292 as Scratch; the CNN flags 789 `none` wafers as Scratch. Two
+models with completely different representations (engineered features vs. raw
+pixels) independently agreeing that specific `none` wafers look like defects is
+evidence that the `none` class is *contaminated* — that some of these are real
+defects the annotator left unlabeled, not model mistakes. Direct inspection
+confirms it is partial: some show clear structure, some are genuine
+over-calls.
+
+![none to Scratch gallery](Images/stage-5_gallery_none_scratch.png)
+*Wafers labeled `none` but predicted Scratch. Several show an unmistakable
+diagonal streak of failing dies — a scratch the annotation missed — while others
+are genuine model over-calls. The `none` boundary is part label-noise, part model
+eagerness.*
+
+**2. Intrinsic geometric ambiguity (shared by both models).** Some confusions
+appear in *both* models' top lists — Edge-Loc ↔ Loc, Edge-Ring → Edge-Loc,
+Scratch → Loc. These are the physically hard cases: an Edge-Loc and a Loc differ
+only in whether the cluster *touches* the edge, and on many real wafers that is
+genuinely borderline. When two different representations both fail the same way,
+the ambiguity is in the wafer, not the model.
+
+![Edge-Loc to Loc gallery](Images/stage-5_gallery_edgeloc_loc.png)
+*True Edge-Loc predicted as Loc. Several are difficult to categorize by eye —
+the cluster sits near but not clearly on the edge. This confusion reflects real
+geometric ambiguity, not a fixable model weakness.*
+
+**3. Representational limits (unique to the CNN).** Every confusion the CNN makes
+that XGBoost does *not* is a radial-class confusion — Center → Loc, Center →
+Donut, Loc → Center. A quarter of all Center defects (26%) are misrouted by the
+CNN. The reason is structural: a convolutional network reads local neighborhoods,
+so it sees "a cluster" but loses "the cluster is radially *centered*" or "it forms
+an *annulus*." The radial-ring feature encodes that distinction explicitly, which
+is why XGBoost keeps these classes apart and the CNN cannot.
+
+![Center to Loc gallery](Images/stage-5_gallery_center_loc.png)
+*True Center defects the CNN predicted as Loc. The central concentration is
+visible to the eye and captured by the radial feature, but is lost when a
+convolutional net reads only local structure — the clearest case of an engineered
+feature outperforming raw pixels.*
+
+The through-line: XGBoost's errors are **local and physical** (adjacent classes
+that genuinely resemble each other); the CNN's errors are **representational** (it
+loses the radial geometry a hand feature provides for free). Which model confuses
+which pair is predictable from first principles about receptive fields versus
+engineered geometry.
+
+---
+
+## Business impact — yield economics
+
+A confusion matrix treats every error equally; a fab does not. Weighting each
+error by the **cost of its type** — a missed defect that escapes the net costs
+far more than a false alarm that wastes review time, which in turn differs from a
+misrouted defect that is still caught but mislabeled — reframes model performance
+in yield terms.
+
+![Cost of errors by type](images/stage-5_cost_by_error_type.png)
+*Cost-weighted error totals (relative units: miss = 10, misroute = 3, false alarm
+= 1). A do-nothing fab absorbs the full escape cost; both models slash it, but the
+CNN's cost is dominated by expensive misses.*
+
+Against a do-nothing baseline (no triage model — every defect escapes, cost
+51,040 relative units):
+
+- **XGBoost recovers 91.3% of the avoidable loss** (cost 4,437), versus **81.7%
+  for the CNN** (cost 9,329). The ~10-point macro-F1 gap becomes a **2.1×** cost
+  gap, because the CNN's errors concentrate in the expensive *escape* category.
+- **XGBoost allows ~3× fewer defect escapes** (miss cost 1,580 vs. 4,450). This
+  traces directly to the CNN sending ~46% of Scratches and much of Loc into
+  `none` — every one a defect that gets past triage.
+- **XGBoost's failures skew cheap.** Its cost splits roughly evenly across miss,
+  false alarm, and misroute — two of which are non-escape, fail-safe error types.
+  When the interpretable model errs, it mostly raises a false flag or mislabels a
+  caught defect, rather than letting one through.
+
+Two honest caveats: the cost ratios are illustrative — a fab would substitute its
+real cost-of-escape, review-hour, and misrouted-investigation figures — but the
+*ranking* (XGBoost < CNN < do-nothing) holds as long as a missed defect costs more
+than a false alarm, which is essentially always true. And the false-alarm cost
+here is likely *overstated*, because the label-noise finding above means some
+`none → defect` "errors" are the model correctly catching unlabeled defects — so
+the true cost of the classical route is even lower than shown.
+
+---
+
 ## Methodology principles
 
 - **Metric discipline.** Under ~989:1 imbalance, accuracy is misleading: a
@@ -330,12 +459,16 @@ geometry) are written up in
 [Modeling — four-model comparison (Stage 4)](#modeling--four-model-comparison-stage-4)
 above.
 
-**Remaining (Stage 5).** The evaluation deepens into a **confusion matrix read
-by physical mechanism** — every confusion explained in terms of which process
-signatures genuinely resemble each other, not just which cells are dark — plus a
-process root-cause writeup and a short yield-economics layer translating
-classifier performance into fab-relevant terms (cost of a missed defect pattern
-vs. a false flag).
+**Evaluation complete (Stage 5).** The confusion matrices are read by physical
+mechanism, sorting every error into three kinds — label noise at the `none`
+boundary, intrinsic geometric ambiguity, and CNN-specific representational limits
+— each supported by galleries of the actual misclassified wafer maps. A
+yield-economics layer then reframes the result in fab terms: **XGBoost recovers
+91% of the loss a model-less fab would absorb, versus 82% for the CNN, and allows
+~3× fewer defect escapes.** See
+[Process root-cause interpretation](#process-root-cause-interpretation),
+[Confusion analysis](#confusion-analysis--reading-the-errors-by-mechanism), and
+[Business impact](#business-impact--yield-economics).
 
 ---
 
@@ -345,7 +478,7 @@ vs. a false flag).
 - [x] **Stage 2** — Preprocessing (64×64 tensor) + size-invariant feature engineering
 - [x] **Stage 3** — Class-imbalance handling: stratified re-split, feature pruning, balanced class weights; interpolation-based resampling evaluated and rejected, geometric augmentation reserved for the CNN
 - [x] **Stage 4** — Classical baseline (Random Forest / XGBoost / SVM) and a small CNN, compared head-to-head on one frozen test set; best macro-F1 0.7934 (XGBoost), with physics-informed features beating the CNN by ~10 points
-- [ ] **Stage 5** — Per-class evaluation, confusion matrix interpreted physically, process root-cause writeup, business-impact layer
+- [x] **Stage 5** — Per-class evaluation with confusion matrices read by physical mechanism (label noise / intrinsic ambiguity / representational limits), wafer-map galleries per confusion, process root-cause interpretation, and a yield-economics business layer
 
 ---
 
@@ -357,7 +490,8 @@ vs. a false flag).
 │   ├── 01_data_loading_eda.ipynb      # Stage 1: load, integrity audit, EDA
 │   ├── 02_preprocessing.ipynb          # Stage 2: 64x64 tensor + hand features
 │   ├── 03_class_imbalance.ipynb         # Stage 3: stratified split, pruning, class weights
-│   └── 04_modeling.ipynb                # Stage 4: RF / XGBoost / SVM + CNN, compared
+│   ├── 04_modeling.ipynb                # Stage 4: RF / XGBoost / SVM + CNN, compared
+│   └── 05_evaluation.ipynb              # Stage 5: confusion analysis, root cause, cost layer
 ├── images/                             # exported figures for this README
 ├── .gitignore
 └── README.md
@@ -388,5 +522,6 @@ redistribute the raw data.
 *Author's note: I come to this from a process/fabrication background
 (cleanroom, lithography, thin films, SEM/TEM/XPS metrology). The
 process-root-cause interpretation is the deliberate focus of the work — the
-per-pattern root-cause analysis will be expanded in my own words in the Stage 5
-writeup.*
+candidate mechanisms in the root-cause table reflect that fab perspective, and
+are framed as the investigative shortlist a yield engineer would carry into a
+tool, not as single-cause claims.*
