@@ -487,12 +487,26 @@ yield-economics layer then reframes the result in fab terms: **XGBoost recovers
 ```
 .
 ├── notebooks/
-│   ├── 01_data_loading_eda.ipynb      # Stage 1: load, integrity audit, EDA
-│   ├── 02_preprocessing.ipynb          # Stage 2: 64x64 tensor + hand features
-│   ├── 03_class_imbalance.ipynb         # Stage 3: stratified split, pruning, class weights
-│   ├── 04_modeling.ipynb                # Stage 4: RF / XGBoost / SVM + CNN, compared
-│   └── 05_evaluation.ipynb              # Stage 5: confusion analysis, root cause, cost layer
-├── images/                             # exported figures for this README
+│   ├── 01_data_loading_eda.ipynb   # Stage 1: load, integrity audit, EDA
+│   ├── 02_preprocessing.ipynb      # Stage 2: 64x64 tensor + hand features
+│   ├── 03_class_imbalance.ipynb    # Stage 3: stratified split, pruning, class weights
+│   ├── 04_modeling.ipynb           # Stage 4: RF / XGBoost / SVM + CNN, compared
+│   └── 05_evaluation.ipynb         # Stage 5: confusion analysis, root cause, cost layer
+├── src/                            # importable, unit-tested feature package
+│   ├── build_features.py           # assembles the 4 groups into X_feat (+ CLI)
+│   └── features/
+│       ├── radial.py               # 10-ring radial density  -> Center / Ring
+│       ├── radon.py                # Radon linearity         -> Scratch
+│       ├── connectivity.py         # component structure     -> Near-full vs Random
+│       └── angular.py              # angular concentration   -> Edge-Ring vs Edge-Loc
+├── tests/                          # pytest suite: 40 tests (contract + physical)
+│   ├── test_radial.py
+│   ├── test_radon.py
+│   ├── test_connectivity.py
+│   ├── test_angular.py
+│   └── test_build_features.py
+├── images/                         # exported figures for this README
+├── requirements.txt                # pinned dependencies
 ├── .gitignore
 └── README.md
 ```
